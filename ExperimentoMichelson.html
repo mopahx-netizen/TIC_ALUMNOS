@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador del Interferómetro de Michelson</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #1e1e1e;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            margin-bottom: 10px;
+            font-size: 24px;
+        }
+        .container {
+            display: flex;
+            flex-direction: row;
+            gap: 20px;
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        @media (max-width: 900px) {
+            .container { flex-direction: column; }
+        }
+        .canvas-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+        canvas {
+            max-width: 100%;
+            height: auto;
+            background-color: #111;
+            border: 2px solid #444;
+            border-radius: 4px;
+        }
+        .controls {
+            width: 300px;
+            max-width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        label {
+            font-size: 14px;
+            font-weight: bold;
+        }
+        input[type="range"] {
+            width: 100%;
+        }
+        .value-display {
+            font-family: monospace;
+            color: #00ffcc;
+            text-align: right;
+            font-size: 13px;
+        }
+        .info-panel {
+            margin-top: 10px;
+            font-size: 12px;
+            line-height: 1.4;
+            color: #aaa;
+            border-top: 1px solid #444;
+            padding-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Simulador del Interferómetro de Michelson</h1>
+
+    <div class="container">
+        <!-- Panel de Canvas -->
+        <div class="canvas-container">
+            <label>Esquema Óptico del Experimento</label>
+            <canvas id="simCanvas" width="450" height="450"></canvas>
+            <label>Patrón de Interferencia (Detector)</label>
+            <canvas id="fringeCanvas" width="450" height="100"></canvas>
+        </div>
+
+        <!-- Panel de Controles -->
+        <div class="controls">
+            <div class="control-group">
+                <label for="wavelength">Longitud de Onda (λ):</label>
+                <input type="range" id="wavelength" min="400" max="700" value="632" step="1">
+                <div class="value-display"><span id="lblWavelength">632</span> nm</div>
+            </div>
+
+            <div class="control-group">
+                <label for="mirror1">Posición Espejo Movible (L₁):</label>
+                <input type="range" id="mirror1" min="140" max="160" value="150" step="0.01">
+                <div class="value-display"><span id="lblMirror1">150.00</span> μm</div>
+            </div>
+
+            <div class="control-group">
+                <label for="mirror2">Posición Espejo Fijo (L₂):</label>
+                <input type="range" id="mirror2" min="140" max="160" value="150" step="0.01" disabled>
+                <div class="value-display">150.00 μm (Fijo)</div>
+            </div>
+
+            <div class="control-group">
+                <label>Diferencia de Camino (2 × ΔL):</label>
+                <div class="value-display" style="font-size: 16px; color: #ffcc00;"><span id="lblDeltaPath">0.00</span> nm</div>
+            </div>
+
+            <div class="info-panel">
+                <p><strong>Instrucciones:</strong> Desplaza el control del <em>Espejo Movible</em>. Al cambiar la distancia de uno de los brazos, la diferencia de fase altera el patrón óptico en el detector.</p>
+                <p>Los anillos son una representación didáctica con un término radial ilustrativo, no un cálculo de la geometría real del haz.</p>
+                <p>La franja central será brillante (interferencia constructiva) si la diferencia de camino es un múltiplo entero de λ, y oscura (destructiva) si es un múltiplo semientero.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Selección de elementos del DOM
+        const simCanvas = document.getElementById('simCanvas');
+        const ctxSim = simCanvas.getContext('2d');
+        const fringeCanvas = document.getElementById('fringeCanvas');
+        const ctxFringe = fringeCanvas.getContext('2d');
+
+        const sliderWavelength = document.getElementById('wavelength');
+        const sliderMirror1 = document.getElementById('mirror1');
+        
+        const lblWavelength = document.getElementById('lblWavelength');
+        const lblMirror1 = document.getElementById('lblMirror1');
+        const lblDeltaPath = document.getElementById('lblDeltaPath');
+
+        // Configuración física base de la simulación
+        const L2_fixed = 150.00; // μm
+
+        // Convierte longitud de onda (nm) a un color RGB aproximado para el Canvas
+        function wavelengthToColor(wavelength) {
+            let r, g, b, alpha = 1;
+            if (wavelength >= 380 && wavelength < 440) {
+                r = -((wavelength - 440) / (440 - 380)); g = 0; b = 1;
+            } else if (wavelength >= 440 && wavelength < 490) {
+                r = 0; g = (wavelength - 440) / (490 - 440); b = 1;
+            } else if (wavelength >= 490 && wavelength < 510) {
+                r = 0; g = 1; b = -((wavelength - 510) / (510 - 490));
+            } else if (wavelength >= 510 && wavelength < 580) {
+                r = (wavelength - 510) / (580 - 510); g = 1; b = 0;
+            } else if (wavelength >= 580 && wavelength < 645) {
+                r = 1; g = -((wavelength - 645) / (645 - 580)); b = 0;
+            } else if (wavelength >= 645 && wavelength <= 780) {
+                r = 1; g = 0; b = 0;
+            } else {
+                r = 0; g = 0; b = 0;
+            }
+            // Factor de intensidad atenuada cerca de los límites visibles
+            let factor = 1;
+            if (wavelength >= 380 && wavelength < 420) factor = 0.3 + 0.7 * (wavelength - 380) / (420 - 380);
+            else if (wavelength >= 700 && wavelength <= 780) factor = 0.3 + 0.7 * (780 - wavelength) / (780 - 700);
+
+            return `rgba(${Math.round(r * 255 * factor)}, ${Math.round(g * 255 * factor)}, ${Math.round(b * 255 * factor)}, ${alpha})`;
+        }
+
+        // Bucle de renderizado y cálculo físico
+        function updateSimulation() {
+            // 1. Obtener valores de los controles
+            const lambda = parseFloat(sliderWavelength.value); // en nm
+            const L1 = parseFloat(sliderMirror1.value); // en μm
+            
+            // Actualizar textos informativos
+            lblWavelength.textContent = lambda;
+            lblMirror1.textContent = L1.toFixed(2);
+            
+            // Diferencia de camino con signo para representar ambos sentidos del movimiento.
+            const deltaL = (L1 - L2_fixed) * 1000; // convertido a nm
+            const deltaPath = 2 * deltaL; 
+            lblDeltaPath.textContent = deltaPath.toFixed(1);
+
+            const laserColor = wavelengthToColor(lambda);
+
+            // ==========================================
+            // DIBUJO DEL PATRÓN DE INTERFERENCIA
+            // ==========================================
+            ctxFringe.clearRect(0, 0, fringeCanvas.width, fringeCanvas.height);
+            
+            // Creamos un degradado circular para simular las franjas de interferencia (fringe pattern)
+            const cx = fringeCanvas.width / 2;
+            const cy = fringeCanvas.height / 2;
+            const maxRadius = Math.ceil(Math.hypot(cx, cy));
+
+            ctxFringe.lineWidth = 1.5;
+            for (let r = 0.5; r <= maxRadius; r += 1) {
+                // Ecuación de interferencia: I = I0 * cos²(ΔΦ / 2)
+                // Diferencia de fase ΔΦ = (2 * π * deltaPath / lambda) + efecto de divergencia geométrica angular
+                // El término (r * r * 0.05) simula la divergencia del haz que genera los anillos concéntricos
+                const phase = (2 * Math.PI * deltaPath / lambda) - (r * r * 0.005);
+                const intensity = Math.pow(Math.cos(phase / 2), 2);
+
+                ctxFringe.strokeStyle = laserColor;
+                ctxFringe.globalAlpha = intensity;
+                ctxFringe.beginPath();
+                ctxFringe.arc(cx, cy, r, 0, 2 * Math.PI);
+                ctxFringe.stroke();
+            }
+            ctxFringe.globalAlpha = 1.0; // Resetear opacidad
+
+            // ==========================================
+            // DIBUJO DEL ESQUEMA ÓPTICO (INTERFERÓMETRO)
+            // ==========================================
+            ctxSim.clearRect(0, 0, simCanvas.width, simCanvas.height);
+
+            // Centro del Divisor de Haz (Beam Splitter)
+            const bsX = 200;
+            const bsY = 200;
+
+            // Coordenadas dinámicas de los espejos basadas en los sliders (escaladas para vista gráfica)
+            // El espejo 1 se mueve horizontalmente en el gráfico
+            const m1X = 200 + (L1 * 1.2); 
+            const m1Y = bsY;
+
+            // El espejo 2 está fijo verticalmente en el gráfico
+            const m2X = bsX;
+            const m2Y = bsY - (L2_fixed * 1.2);
+
+            // --- 2.1 Dibujar Láser / Fuente de Luz ---
+            ctxSim.fillStyle = "#555";
+            ctxSim.fillRect(20, bsY - 15, 40, 30);
+            ctxSim.fillStyle = "#fff";
+            ctxSim.font = "10px Arial";
+            ctxSim.fillText("LÁSER", 23, bsY + 4);
+
+            // --- 2.2 Dibujar Divisor de Haz (Semi-espejo a 45°) ---
+            ctxSim.save();
+            ctxSim.translate(bsX, bsY);
+            ctxSim.rotate(-Math.PI / 4);
+            ctxSim.fillStyle = "rgba(200, 220, 255, 0.5)";
+            ctxSim.fillRect(-5, -30, 10, 60);
+            ctxSim.strokeStyle = "#fff";
+            ctxSim.strokeRect(-5, -30, 10, 60);
+            ctxSim.restore();
+
+            // Espejos y detector.
+            ctxSim.fillStyle = "#a6c8df";
+            ctxSim.fillRect(m1X, m1Y - 32, 7, 64);
+            ctxSim.fillRect(m2X - 32, m2Y, 64, 7);
+            ctxSim.fillStyle = "#fff";
+            ctxSim.font = "12px Arial";
+            ctxSim.fillText("M₁ (movible)", m1X - 64, m1Y - 42);
+            ctxSim.fillText("M₂ (fijo)", m2X + 40, m2Y + 12);
+            ctxSim.fillText("L₁ = " + L1.toFixed(2) + " μm", 252, bsY + 46);
+            ctxSim.fillText("L₂ = 150.00 μm", bsX + 16, 103);
+            ctxSim.fillStyle = "#555";
+            ctxSim.fillRect(bsX - 40, 357, 80, 26);
+            ctxSim.fillStyle = "#fff";
+            ctxSim.fillText("DETECTOR", bsX - 33, 375);
+            ctxSim.fillText("Divisor de haz", 66, 258);
+
+            // Rayos de ida y vuelta ligeramente separados para ver los trayectos.
+            function ray(x1, y1, x2, y2) {
+                ctxSim.strokeStyle = laserColor;
+                ctxSim.lineWidth = 2;
+                ctxSim.beginPath();
+                ctxSim.moveTo(x1, y1);
+                ctxSim.lineTo(x2, y2);
+                ctxSim.stroke();
+                const x = x1 + (x2 - x1) * 0.58;
+                const y = y1 + (y2 - y1) * 0.58;
+                const a = Math.atan2(y2 - y1, x2 - x1);
+                ctxSim.beginPath();
+                ctxSim.moveTo(x, y);
+                ctxSim.lineTo(x - 8 * Math.cos(a - 0.4), y - 8 * Math.sin(a - 0.4));
+                ctxSim.moveTo(x, y);
+                ctxSim.lineTo(x - 8 * Math.cos(a + 0.4), y - 8 * Math.sin(a + 0.4));
+                ctxSim.stroke();
+            }
+            ray(60, bsY, bsX, bsY);
+            ray(bsX, bsY - 3, m1X, bsY - 3);
+            ray(m1X, bsY + 3, bsX, bsY + 3);
+            ray(bsX - 3, bsY, bsX - 3, m2Y + 7);
+            ray(bsX + 3, m2Y + 7, bsX + 3, bsY);
+            ray(bsX - 3, bsY, bsX - 3, 357);
+            ray(bsX + 3, bsY, bsX + 3, 357);
+        }
+
+        sliderWavelength.addEventListener('input', updateSimulation);
+        sliderMirror1.addEventListener('input', updateSimulation);
+        updateSimulation();
+    </script>
+</body>
+</html>

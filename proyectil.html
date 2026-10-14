@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Disparo de un proyectil</title>
+<style>
+*{box-sizing:border-box}body{margin:0;padding:20px;background:#eef3f8;font-family:system-ui,sans-serif;color:#243447}main{max-width:900px;margin:auto}h1{font-size:24px;margin:0 0 8px}.panel{background:white;padding:16px;border-radius:12px;margin-top:12px;box-shadow:0 3px 15px #0001}canvas{display:block;width:100%;height:auto;border-radius:10px;background:#42bee5}.controls{display:flex;gap:14px;align-items:center;flex-wrap:wrap}label{display:flex;align-items:center;gap:8px}input{width:75px;padding:7px;border:1px solid #b7c7d4;border-radius:6px}button{padding:9px 16px;border:0;border-radius:7px;background:#1266bc;color:white;cursor:pointer}button.secondary{background:#546678}button:disabled{opacity:.5;cursor:default}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}.stats div{background:#f1f6fa;border-radius:8px;padding:10px}.stats span{display:block;font-size:19px;color:#1266bc;font-weight:600}.note{font-size:14px;color:#526476;line-height:1.5}#status{min-height:22px;margin:10px 0 0}
+</style>
+</head>
+<body><main>
+<h1>Movimiento de un proyectil</h1>
+<p>Velocidad inicial de 18 m/s y ángulo de 76°. Disparo desde el suelo, sin resistencia del aire.</p>
+<canvas id="scene" width="900" height="530" aria-label="Simulación de trayectoria parabólica"></canvas>
+<div class="panel controls">
+<label>v₀ (m/s) <input id="speed" type="number" value="18" min="1" max="60" step="1"></label>
+<label>Ángulo (°) <input id="angle" type="number" value="76" min="1" max="89" step="1"></label>
+<button id="fire">Disparar</button><button id="pause" class="secondary" disabled>Pausar</button><button id="reset" class="secondary">Reiniciar</button>
+<label><input type="checkbox" id="guide" checked style="width:auto">Mostrar trayectoria</label>
+</div>
+<div class="panel stats">
+<div>Tiempo<span id="time"></span></div><div>Posición x<span id="x"></span></div><div>Altura y<span id="y"></span></div>
+<div>Alcance<span id="range"></span></div><div>Altura máxima<span id="height"></span></div><div>Tiempo de vuelo<span id="flight"></span></div>
+</div>
+<div class="panel note">Modelo: x(t) = v₀ cos(θ)t; y(t) = v₀ sen(θ)t − ½gt², con g = 9,81 m/s². Los ejes usan la misma escala. La boca del cañón representa el origen (0, 0).</div>
+<p id="status" role="status">Listo para disparar.</p>
+</main>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const canvas=$('scene'), ctx=canvas.getContext('2d');
+const W=canvas.width,H=canvas.height,g=9.81,ox=100,oy=440;
+let v,theta,vx,vy,T,R,hmax,scale,t=0,running=false,started=false,previous=null;
+function setup(){
+ v=Number($('speed').value);const a=Number($('angle').value);
+ if(!Number.isFinite(v)||!Number.isFinite(a)||v<1||v>60||a<1||a>89){$('status').textContent='Introduce una velocidad entre 1 y 60 m/s y un ángulo entre 1° y 89°.';return false;}
+ theta=a*Math.PI/180;vx=v*Math.cos(theta);vy=v*Math.sin(theta);
+ T=2*vy/g;R=vx*T;hmax=vy*vy/(2*g);
+ scale=Math.min((W-ox-65)/Math.max(R,1),(oy-55)/Math.max(hmax,1));
+ t=0;running=false;started=false;previous=null;
+ $('speed').disabled=false;$('angle').disabled=false;$('fire').disabled=false;$('pause').disabled=true;$('pause').textContent='Pausar';
+ $('status').textContent='Listo para disparar.';render();return true;
+}
+function point(time){return {x:vx*time,y:Math.max(0,vy*time-.5*g*time*time)};}
+function screen(x,y){return [ox+x*scale,oy-y*scale];}
+function trajectory(end,color,width,dashed=false){
+ ctx.save();ctx.strokeStyle=color;ctx.lineWidth=width;ctx.setLineDash(dashed?[6,5]:[]);ctx.beginPath();
+ for(let i=0;i<=180;i++){const q=point(end*i/180),s=screen(q.x,q.y);i?ctx.lineTo(...s):ctx.moveTo(...s);}ctx.stroke();ctx.restore();
+}
+function tickStep(target){const power=10**Math.floor(Math.log10(target));const n=target/power;return (n<=1?1:n<=2?2:n<=5?5:10)*power;}
+function render(){
+ const sky=ctx.createLinearGradient(0,0,0,oy);sky.addColorStop(0,'#0badda');sky.addColorStop(1,'#d5f3fb');ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
+ const step=tickStep(75/scale);ctx.font='13px system-ui';ctx.lineWidth=1;
+ for(let x=0;x<(W-ox-20)/scale;x+=step){const sx=ox+x*scale;ctx.strokeStyle='#ffffff45';ctx.beginPath();ctx.moveTo(sx,25);ctx.lineTo(sx,oy);ctx.stroke();ctx.fillStyle='#24465c';ctx.fillText(`${+x.toFixed(2)} m`,sx-10,oy+24);}
+ for(let y=step;y<(oy-25)/scale;y+=step){const sy=oy-y*scale;ctx.strokeStyle='#ffffff45';ctx.beginPath();ctx.moveTo(ox,sy);ctx.lineTo(W-20,sy);ctx.stroke();ctx.fillStyle='#24465c';ctx.fillText(`${+y.toFixed(2)} m`,12,sy+4);}
+ ctx.fillStyle='#22a350';ctx.fillRect(0,oy+30,W,H-oy-30);ctx.fillStyle='#586050';ctx.fillRect(0,oy,W,30);
+ ctx.strokeStyle='#f4df88';ctx.setLineDash([20,15]);ctx.beginPath();ctx.moveTo(0,oy+15);ctx.lineTo(W,oy+15);ctx.stroke();ctx.setLineDash([]);
+ if($('guide').checked)trajectory(T,'#304dca99',2,true);
+ if(started)trajectory(t,'#2449e8',3);
+ // El cañón es decorativo; la boca coincide con el origen físico.
+ ctx.save();ctx.translate(ox,oy);ctx.rotate(-theta);ctx.fillStyle='#d62c35';ctx.fillRect(-63,-12,63,24);ctx.fillStyle='#f8ce43';ctx.fillRect(-63,-12,63,5);ctx.fillStyle='#ffe078';ctx.fillRect(-8,-16,8,32);ctx.restore();
+ ctx.fillStyle='#941d26';ctx.beginPath();ctx.ellipse(ox-15,oy+5,36,11,0,0,2*Math.PI);ctx.fill();
+ ctx.strokeStyle='#d52b28';ctx.lineWidth=2;ctx.beginPath();ctx.arc(ox,oy,45,-theta,0);ctx.stroke();ctx.fillStyle='#c62028';ctx.font='bold 18px system-ui';ctx.fillText(`α = ${$('angle').value}°`,ox+52,oy-32);
+ const q=point(t),s=screen(q.x,q.y);ctx.fillStyle='#e82324';ctx.beginPath();ctx.arc(...s,7,0,2*Math.PI);ctx.fill();ctx.fillStyle='#fff8';ctx.beginPath();ctx.arc(s[0]-2,s[1]-2,2,0,2*Math.PI);ctx.fill();
+ if(started&&t>=T){const landing=screen(R,0);ctx.strokeStyle='#e82324';ctx.lineWidth=3;ctx.beginPath();ctx.ellipse(landing[0],oy+3,22,6,0,0,Math.PI*2);ctx.stroke();}
+ $('time').textContent=t.toFixed(2)+' s';$('x').textContent=q.x.toFixed(2)+' m';$('y').textContent=q.y.toFixed(2)+' m';$('range').textContent=R.toFixed(2)+' m';$('height').textContent=hmax.toFixed(2)+' m';$('flight').textContent=T.toFixed(2)+' s';
+}
+function frame(now){
+ if(running){if(previous!==null)t=Math.min(T,t+(now-previous)/1000);previous=now;
+ if(t>=T){running=false;previous=null;$('pause').disabled=true;$('fire').disabled=false;$('speed').disabled=false;$('angle').disabled=false;$('status').textContent='El proyectil ha llegado al suelo.';}render();}
+ requestAnimationFrame(frame);
+}
+$('fire').onclick=()=>{if(!setup())return;started=true;running=true;$('fire').disabled=true;$('pause').disabled=false;$('speed').disabled=true;$('angle').disabled=true;$('status').textContent='Proyectil en vuelo.';};
+$('pause').onclick=()=>{running=!running;previous=null;$('pause').textContent=running?'Pausar':'Continuar';$('status').textContent=running?'Proyectil en vuelo.':'Simulación pausada.';};
+$('reset').onclick=setup;$('speed').onchange=setup;$('angle').onchange=setup;$('guide').onchange=render;
+setup();requestAnimationFrame(frame);
+</script></body></html>
